@@ -8,7 +8,6 @@ use PhpParser\Node\Expr\MethodCall;
 use PHPStan\Analyser\Scope;
 use PHPStan\Doctrine\Driver\DriverDetector;
 use PHPStan\Reflection\MethodReflection;
-use PHPStan\Reflection\ParametersAcceptorSelector;
 use PHPStan\Reflection\ReflectionProvider;
 use PHPStan\Type\Doctrine\ObjectMetadataResolver;
 use PHPStan\Type\DynamicMethodReturnTypeExtension;
@@ -17,18 +16,18 @@ use PHPStan\Type\Type;
 class RowCountMethodDynamicReturnTypeExtension implements DynamicMethodReturnTypeExtension
 {
 
-	/** @var string */
-	private $class;
+	/** @var class-string */
+	private string $class;
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
-	/** @var DriverDetector */
-	private $driverDetector;
+	private DriverDetector $driverDetector;
 
-	/** @var ReflectionProvider */
-	private $reflectionProvider;
+	private ReflectionProvider $reflectionProvider;
 
+	/**
+	 * @param class-string $class
+	 */
 	public function __construct(
 		string $class,
 		ObjectMetadataResolver $objectMetadataResolver,
@@ -66,9 +65,6 @@ class RowCountMethodDynamicReturnTypeExtension implements DynamicMethodReturnTyp
 		}
 
 		$resultClass = $this->getResultClass($driver);
-		if ($resultClass === null) {
-			return null;
-		}
 
 		if (!$this->reflectionProvider->hasClass($resultClass)) {
 			return null;
@@ -80,16 +76,16 @@ class RowCountMethodDynamicReturnTypeExtension implements DynamicMethodReturnTyp
 		}
 
 		$rowCountMethod = $resultReflection->getNativeMethod('rowCount');
-		$variant = ParametersAcceptorSelector::selectSingle($rowCountMethod->getVariants());
+		$variant = $rowCountMethod->getOnlyVariant();
 
 		return $variant->getReturnType();
 	}
 
 	/**
 	 * @param DriverDetector::* $driver
-	 * @return class-string<DriverResult>|null
+	 * @return class-string<DriverResult>
 	 */
-	private function getResultClass(string $driver): ?string
+	private function getResultClass(string $driver): string
 	{
 		switch ($driver) {
 			case DriverDetector::IBM_DB2:
@@ -111,8 +107,6 @@ class RowCountMethodDynamicReturnTypeExtension implements DynamicMethodReturnTyp
 			case DriverDetector::SQLSRV:
 				return 'Doctrine\DBAL\Driver\SQLSrv\Result';
 		}
-
-		return null;
 	}
 
 }

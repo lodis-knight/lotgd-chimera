@@ -10,7 +10,6 @@ use PHPStan\ShouldNotHappenException;
 use PHPStan\Type\ArrayType;
 use PHPStan\Type\Doctrine\ObjectMetadataResolver;
 use PHPStan\Type\IntegerType;
-use PHPStan\Type\NullType;
 use PHPStan\Type\TypeCombinator;
 use function lcfirst;
 use function str_replace;
@@ -22,8 +21,7 @@ use function ucwords;
 class EntityRepositoryClassReflectionExtension implements MethodsClassReflectionExtension
 {
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
 	public function __construct(ObjectMetadataResolver $objectMetadataResolver)
 	{
@@ -57,7 +55,7 @@ class EntityRepositoryClassReflectionExtension implements MethodsClassReflection
 		}
 
 		$templateTypeMap = $repositoryAncesor->getActiveTemplateTypeMap();
-		$entityClassType = $templateTypeMap->getType('TEntityClass');
+		$entityClassType = $templateTypeMap->getType('T');
 		if ($entityClassType === null) {
 			return false;
 		}
@@ -89,14 +87,11 @@ class EntityRepositoryClassReflectionExtension implements MethodsClassReflection
 	{
 		$repositoryAncesor = $classReflection->getAncestorWithClassName(ObjectRepository::class);
 		if ($repositoryAncesor === null) {
-			$repositoryAncesor = $classReflection->getAncestorWithClassName(ObjectRepository::class);
-			if ($repositoryAncesor === null) {
-				throw new ShouldNotHappenException();
-			}
+			throw new ShouldNotHappenException();
 		}
 
 		$templateTypeMap = $repositoryAncesor->getActiveTemplateTypeMap();
-		$entityClassType = $templateTypeMap->getType('TEntityClass');
+		$entityClassType = $templateTypeMap->getType('T');
 		if ($entityClassType === null) {
 			throw new ShouldNotHappenException();
 		}
@@ -108,7 +103,7 @@ class EntityRepositoryClassReflectionExtension implements MethodsClassReflection
 		} elseif (
 			strpos($methodName, 'findOneBy') === 0
 		) {
-			$returnType = TypeCombinator::union($entityClassType, new NullType());
+			$returnType = TypeCombinator::addNull($entityClassType);
 		} elseif (
 			strpos($methodName, 'countBy') === 0
 		) {

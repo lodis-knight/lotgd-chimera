@@ -9,6 +9,7 @@ use PHPStan\Reflection\ReflectionProvider;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use PHPStan\Type\ArrayType;
+use PHPStan\Type\Constant\ConstantStringType;
 use PHPStan\Type\Doctrine\DescriptorNotRegisteredException;
 use PHPStan\Type\Doctrine\DescriptorRegistry;
 use PHPStan\Type\Doctrine\ObjectMetadataResolver;
@@ -16,7 +17,6 @@ use PHPStan\Type\ErrorType;
 use PHPStan\Type\MixedType;
 use PHPStan\Type\NeverType;
 use PHPStan\Type\ObjectType;
-use PHPStan\Type\ParserNodeTypeToPHPStanType;
 use PHPStan\Type\Type;
 use PHPStan\Type\TypeCombinator;
 use PHPStan\Type\TypehintHelper;
@@ -24,8 +24,11 @@ use PHPStan\Type\TypeTraverser;
 use PHPStan\Type\TypeUtils;
 use PHPStan\Type\VerbosityLevel;
 use Throwable;
+use function count;
 use function get_class;
 use function in_array;
+use function is_array;
+use function is_string;
 use function sprintf;
 
 /**
@@ -34,31 +37,22 @@ use function sprintf;
 class EntityColumnRule implements Rule
 {
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
-	/** @var DescriptorRegistry */
-	private $descriptorRegistry;
+	private DescriptorRegistry $descriptorRegistry;
 
-	/** @var ReflectionProvider */
-	private $reflectionProvider;
+	private ReflectionProvider $reflectionProvider;
 
-	/** @var bool */
-	private $reportUnknownTypes;
+	private bool $reportUnknownTypes;
 
-	/** @var bool */
-	private $allowNullablePropertyForRequiredField;
-
-	/** @var bool */
-	private $bleedingEdge;
+	private bool $allowNullablePropertyForRequiredField;
 
 	public function __construct(
 		ObjectMetadataResolver $objectMetadataResolver,
 		DescriptorRegistry $descriptorRegistry,
 		ReflectionProvider $reflectionProvider,
 		bool $reportUnknownTypes,
-		bool $allowNullablePropertyForRequiredField,
-		bool $bleedingEdge
+		bool $allowNullablePropertyForRequiredField
 	)
 	{
 		$this->objectMetadataResolver = $objectMetadataResolver;
@@ -66,7 +60,6 @@ class EntityColumnRule implements Rule
 		$this->reflectionProvider = $reflectionProvider;
 		$this->reportUnknownTypes = $reportUnknownTypes;
 		$this->allowNullablePropertyForRequiredField = $allowNullablePropertyForRequiredField;
-		$this->bleedingEdge = $bleedingEdge;
 	}
 
 	public function getNodeType(): string
@@ -76,9 +69,6 @@ class EntityColumnRule implements Rule
 
 	public function processNode(Node $node, Scope $scope): array
 	{
-		if (!$this->bleedingEdge && !$this->objectMetadataResolver->hasObjectManagerLoader()) {
-			return [];
-		}
 		$class = $scope->getClassReflection();
 		if ($class === null) {
 			return [];
@@ -106,7 +96,7 @@ class EntityColumnRule implements Rule
 					'Property %s::$%s: Doctrine type "%s" does not have any registered descriptor.',
 					$className,
 					$propertyName,
-					$fieldMapping['type']
+					$fieldMapping['type'],
 				))->identifier('doctrine.descriptorNotFound')->build(),
 			] : [];
 		}
@@ -128,7 +118,7 @@ class EntityColumnRule implements Rule
 								$propertyName,
 								$backedEnumType->describe(VerbosityLevel::typeOnly()),
 								$enumReflection->getDisplayName(),
-								$writableToDatabaseType->describe(VerbosityLevel::typeOnly())
+								$writableToDatabaseType->describe(VerbosityLevel::typeOnly()),
 							))->identifier('doctrine.enumType')->build();
 						}
 					}
@@ -151,8 +141,8 @@ class EntityColumnRule implements Rule
 									$backedEnumType->describe(VerbosityLevel::typeOnly()),
 									$enumReflection->getDisplayName(),
 									$writableToDatabaseType->getIterableValueType()->describe(VerbosityLevel::typeOnly()),
-									$writableToDatabaseType->describe(VerbosityLevel::typeOnly())
-								)
+									$writableToDatabaseType->describe(VerbosityLevel::typeOnly()),
+								),
 							)->identifier('doctrine.enumType')->build();
 						}
 					}
@@ -160,13 +150,32 @@ class EntityColumnRule implements Rule
 
 				$writableToPropertyType = TypeCombinator::intersect(new ArrayType(
 					$writableToPropertyType->getIterableKeyType(),
-					$enumType
+					$enumType,
 				), ...TypeUtils::getAccessoryTypes($writableToPropertyType));
 				$writableToDatabaseType = TypeCombinator::intersect(new ArrayType(
 					$writableToDatabaseType->getIterableKeyType(),
-					$enumType
+					$enumType,
 				), ...TypeUtils::getAccessoryTypes($writableToDatabaseType));
 
+			}
+		} elseif ($fieldMapping['type'] === 'enum') {
+			$values = $fieldMapping['options']['values'] ?? null;
+			if (is_array($values)) {
+				$enumTypes = [];
+				foreach ($values as $value) {
+					if (!is_string($value)) {
+						$enumTypes = [];
+						break;
+					}
+
+					$enumTypes[] = new ConstantStringType($value);
+				}
+
+				if (count($enumTypes) > 0) {
+					$unionType = TypeCombinator::union(...$enumTypes);
+					$writableToPropertyType = $unionType;
+					$writableToDatabaseType = $unionType;
+				}
 			}
 		}
 
@@ -189,7 +198,7 @@ class EntityColumnRule implements Rule
 		}
 
 		$phpDocType = $node->getPhpDocType();
-		$nativeType = $node->getNativeType() !== null ? ParserNodeTypeToPHPStanType::resolve($node->getNativeType(), $scope->getClassReflection()) : new MixedType();
+		$nativeType = $node->getNativeType() ?? new MixedType();
 		$propertyType = TypehintHelper::decideType($nativeType, $phpDocType);
 
 		if (get_class($propertyType) === MixedType::class || $propertyType instanceof ErrorType || $propertyType instanceof NeverType) {
@@ -211,7 +220,7 @@ class EntityColumnRule implements Rule
 				$className,
 				$propertyName,
 				$writableToPropertyType->describe(VerbosityLevel::getRecommendedLevelByType($propertyTransformedType, $writableToPropertyType)),
-				$propertyType->describe(VerbosityLevel::getRecommendedLevelByType($propertyTransformedType, $writableToPropertyType))
+				$propertyType->describe(VerbosityLevel::getRecommendedLevelByType($propertyTransformedType, $writableToPropertyType)),
 			))->identifier('doctrine.columnType')->build();
 		}
 
@@ -219,7 +228,7 @@ class EntityColumnRule implements Rule
 			!$writableToDatabaseType->isSuperTypeOf(
 				$this->allowNullablePropertyForRequiredField || (in_array($propertyName, $identifiers, true) && !$nullable)
 					? TypeCombinator::removeNull($propertyType)
-					: $propertyType
+					: $propertyType,
 			)->yes()
 		) {
 			$errors[] = RuleErrorBuilder::message(sprintf(
@@ -227,7 +236,7 @@ class EntityColumnRule implements Rule
 				$className,
 				$propertyName,
 				$propertyTransformedType->describe(VerbosityLevel::getRecommendedLevelByType($writableToDatabaseType, $propertyType)),
-				$writableToDatabaseType->describe(VerbosityLevel::getRecommendedLevelByType($writableToDatabaseType, $propertyType))
+				$writableToDatabaseType->describe(VerbosityLevel::getRecommendedLevelByType($writableToDatabaseType, $propertyType)),
 			))->identifier('doctrine.columnType')->build();
 		}
 		return $errors;

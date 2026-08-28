@@ -3,6 +3,7 @@
 namespace PHPStan\Type\Doctrine\Query;
 
 use BackedEnum;
+use Doctrine\DBAL\Types\EnumType as DbalEnumType;
 use Doctrine\DBAL\Types\StringType as DbalStringType;
 use Doctrine\DBAL\Types\Type as DbalType;
 use Doctrine\ORM\EntityManagerInterface;
@@ -26,6 +27,7 @@ use PHPStan\Type\BooleanType;
 use PHPStan\Type\Constant\ConstantBooleanType;
 use PHPStan\Type\Constant\ConstantFloatType;
 use PHPStan\Type\Constant\ConstantIntegerType;
+use PHPStan\Type\Constant\ConstantStringType;
 use PHPStan\Type\ConstantTypeHelper;
 use PHPStan\Type\Doctrine\DescriptorNotRegisteredException;
 use PHPStan\Type\Doctrine\DescriptorRegistry;
@@ -53,6 +55,7 @@ use function count;
 use function get_class;
 use function gettype;
 use function in_array;
+use function is_array;
 use function is_int;
 use function is_numeric;
 use function is_object;
@@ -86,54 +89,45 @@ class QueryResultTypeWalker extends SqlWalker
 	/**
 	 * Counter for generating unique scalar result.
 	 *
-	 * @var int
 	 */
-	private $scalarResultCounter = 1;
+	private int $scalarResultCounter = 1;
 
 	/**
 	 * Counter for generating indexes.
 	 *
-	 * @var int
 	 */
-	private $newObjectCounter = 0;
+	private int $newObjectCounter = 0;
 
 	/** @var Query<mixed> */
-	private $query;
+	private Query $query;
 
-	/** @var EntityManagerInterface */
-	private $em;
+	private EntityManagerInterface $em;
 
-	/** @var PhpVersion */
-	private $phpVersion;
+	private PhpVersion $phpVersion;
 
 	/** @var DriverDetector::*|null */
 	private $driverType;
 
 	/** @var array<mixed> */
-	private $driverOptions;
+	private array $driverOptions;
 
 	/**
 	 * Map of all components/classes that appear in the DQL query.
 	 *
 	 * @var array<array-key,QueryComponent> $queryComponents
 	 */
-	private $queryComponents;
+	private array $queryComponents;
 
 	/** @var array<array-key,bool> */
-	private $nullableQueryComponents;
+	private array $nullableQueryComponents;
 
-	/** @var QueryResultTypeBuilder */
-	private $typeBuilder;
+	private QueryResultTypeBuilder $typeBuilder;
 
-	/** @var DescriptorRegistry */
-	private $descriptorRegistry;
+	private DescriptorRegistry $descriptorRegistry;
 
-	/** @var bool */
-	private $hasAggregateFunction;
+	private bool $hasAggregateFunction;
 
-	/** @var bool */
-	private $hasGroupByClause;
-
+	private bool $hasGroupByClause;
 
 	/**
 	 * @param Query<mixed> $query
@@ -184,7 +178,7 @@ class QueryResultTypeWalker extends SqlWalker
 				'Expected the query hint %s to contain a %s, but got a %s',
 				self::HINT_TYPE_MAPPING,
 				QueryResultTypeBuilder::class,
-				is_object($typeBuilder) ? get_class($typeBuilder) : gettype($typeBuilder)
+				is_object($typeBuilder) ? get_class($typeBuilder) : gettype($typeBuilder),
 			));
 		}
 
@@ -197,7 +191,7 @@ class QueryResultTypeWalker extends SqlWalker
 				'Expected the query hint %s to contain a %s, but got a %s',
 				self::HINT_DESCRIPTOR_REGISTRY,
 				DescriptorRegistry::class,
-				is_object($descriptorRegistry) ? get_class($descriptorRegistry) : gettype($descriptorRegistry)
+				is_object($descriptorRegistry) ? get_class($descriptorRegistry) : gettype($descriptorRegistry),
 			));
 		}
 
@@ -210,7 +204,7 @@ class QueryResultTypeWalker extends SqlWalker
 				'Expected the query hint %s to contain a %s, but got a %s',
 				self::HINT_PHP_VERSION,
 				PhpVersion::class,
-				is_object($phpVersion) ? get_class($phpVersion) : gettype($phpVersion)
+				is_object($phpVersion) ? get_class($phpVersion) : gettype($phpVersion),
 			));
 		}
 
@@ -223,7 +217,7 @@ class QueryResultTypeWalker extends SqlWalker
 				'Expected the query hint %s to contain a %s, but got a %s',
 				self::HINT_DRIVER_DETECTOR,
 				DriverDetector::class,
-				is_object($driverDetector) ? get_class($driverDetector) : gettype($driverDetector)
+				is_object($driverDetector) ? get_class($driverDetector) : gettype($driverDetector),
 			));
 		}
 		$connection = $this->em->getConnection();
@@ -294,13 +288,13 @@ class QueryResultTypeWalker extends SqlWalker
 
 		switch ($pathExpr->type) {
 			case AST\PathExpression::TYPE_STATE_FIELD:
-				[$typeName, $enumType] = $this->getTypeOfField($class, $fieldName);
+				[$typeName, $enumType, $enumValues] = $this->getTypeOfField($class, $fieldName);
 
 				$nullable = $this->isQueryComponentNullable($dqlAlias)
 					|| $class->isNullable($fieldName)
 					|| $this->hasAggregateWithoutGroupBy();
 
-				$fieldType = $this->resolveDatabaseInternalType($typeName, $enumType, $nullable);
+				$fieldType = $this->resolveDatabaseInternalType($typeName, $enumType, $enumValues, $nullable);
 
 				return $this->marshalType($fieldType);
 
@@ -334,12 +328,12 @@ class QueryResultTypeWalker extends SqlWalker
 				}
 
 				$targetFieldName = $identifierFieldNames[0];
-				[$typeName, $enumType] = $this->getTypeOfField($targetClass, $targetFieldName);
+				[$typeName, $enumType, $enumValues] = $this->getTypeOfField($targetClass, $targetFieldName);
 
 				$nullable = ($joinColumn['nullable'] ?? true)
 					|| $this->hasAggregateWithoutGroupBy();
 
-				$fieldType = $this->resolveDatabaseInternalType($typeName, $enumType, $nullable);
+				$fieldType = $this->resolveDatabaseInternalType($typeName, $enumType, $enumValues, $nullable);
 
 				return $this->marshalType($fieldType);
 
@@ -619,7 +613,7 @@ class QueryResultTypeWalker extends SqlWalker
 				if ($this->driverType === DriverDetector::MYSQLI || $this->driverType === DriverDetector::PDO_MYSQL || $this->driverType === DriverDetector::SQLITE3 || $this->driverType === DriverDetector::PDO_SQLITE) {
 					$type = new FloatType();
 
-					$cannotBeNegative = $exprType->isSmallerThan(new ConstantIntegerType(0))->no();
+					$cannotBeNegative = $exprType->isSmallerThan(new ConstantIntegerType(0), $this->phpVersion)->no();
 					$canBeNegative = !$cannotBeNegative;
 					if ($canBeNegative) {
 						$type = TypeCombinator::addNull($type);
@@ -668,6 +662,7 @@ class QueryResultTypeWalker extends SqlWalker
 			case $function instanceof AST\Functions\IdentityFunction:
 				$dqlAlias = $function->pathExpression->identificationVariable;
 				$assocField = $function->pathExpression->field;
+				assert(is_string($assocField));
 				$queryComp = $this->queryComponents[$dqlAlias];
 				assert(array_key_exists('metadata', $queryComp));
 				$class = $queryComp['metadata'];
@@ -693,7 +688,7 @@ class QueryResultTypeWalker extends SqlWalker
 					return $this->marshalType(new MixedType());
 				}
 
-				[$typeName, $enumType] = $this->getTypeOfField($targetClass, $targetFieldName);
+				[$typeName, $enumType, $enumValues] = $this->getTypeOfField($targetClass, $targetFieldName);
 
 				if (!isset($assoc['joinColumns'])) {
 					return $this->marshalType(new MixedType());
@@ -716,7 +711,7 @@ class QueryResultTypeWalker extends SqlWalker
 					|| $this->isQueryComponentNullable($dqlAlias)
 					|| $this->hasAggregateWithoutGroupBy();
 
-				$fieldType = $this->resolveDatabaseInternalType($typeName, $enumType, $nullable);
+				$fieldType = $this->resolveDatabaseInternalType($typeName, $enumType, $enumValues, $nullable);
 
 				return $this->marshalType($fieldType);
 
@@ -810,7 +805,7 @@ class QueryResultTypeWalker extends SqlWalker
 			if ($exprTypeNoNull->isInteger()->yes()) {
 				return TypeCombinator::union(
 					$this->createInteger($nullable),
-					$this->createNumericString($nullable, true, true)
+					$this->createNumericString($nullable, true, true),
 				);
 			}
 
@@ -830,7 +825,7 @@ class QueryResultTypeWalker extends SqlWalker
 	{
 		$union = TypeCombinator::union(
 			new FloatType(),
-			new IntegerType()
+			new IntegerType(),
 		);
 		return $nullable ? TypeCombinator::addNull($union) : $union;
 	}
@@ -930,14 +925,14 @@ class QueryResultTypeWalker extends SqlWalker
 			$result = $this->createNumericString(
 				$containsNull,
 				$typeNoNull->isLowercaseString()->yes(),
-				$typeNoNull->isUppercaseString()->yes()
+				$typeNoNull->isUppercaseString()->yes(),
 			);
 
 		} elseif ($typeNoNull->isString()->yes()) {
 			$result = $this->createString(
 				$containsNull,
 				$typeNoNull->isLowercaseString()->yes(),
-				$typeNoNull->isUppercaseString()->yes()
+				$typeNoNull->isUppercaseString()->yes(),
 			);
 
 		} else {
@@ -1031,7 +1026,7 @@ class QueryResultTypeWalker extends SqlWalker
 
 		if ($this->driverType === DriverDetector::MYSQLI || $this->driverType === DriverDetector::PDO_MYSQL) {
 			return $this->marshalType(
-				$this->inferCoalesceForMySql($rawTypes, $generalizedUnion)
+				$this->inferCoalesceForMySql($rawTypes, $generalizedUnion),
 			);
 		}
 
@@ -1113,13 +1108,13 @@ class QueryResultTypeWalker extends SqlWalker
 			}
 
 			$types[] = $this->unmarshalType(
-				$thenScalarExpression->dispatch($this)
+				$thenScalarExpression->dispatch($this),
 			);
 		}
 
 		if ($elseScalarExpression instanceof AST\Node) {
 			$types[] = $this->unmarshalType(
-				$elseScalarExpression->dispatch($this)
+				$elseScalarExpression->dispatch($this),
 			);
 		}
 
@@ -1150,13 +1145,13 @@ class QueryResultTypeWalker extends SqlWalker
 			}
 
 			$types[] = $this->unmarshalType(
-				$thenScalarExpression->dispatch($this)
+				$thenScalarExpression->dispatch($this),
 			);
 		}
 
 		if ($elseScalarExpression instanceof AST\Node) {
 			$types[] = $this->unmarshalType(
-				$elseScalarExpression->dispatch($this)
+				$elseScalarExpression->dispatch($this),
 			);
 		}
 
@@ -1214,13 +1209,13 @@ class QueryResultTypeWalker extends SqlWalker
 			assert(array_key_exists('metadata', $qComp));
 			$class = $qComp['metadata'];
 
-			[$typeName, $enumType] = $this->getTypeOfField($class, $fieldName);
+			[$typeName, $enumType, $enumValues] = $this->getTypeOfField($class, $fieldName);
 
 			$nullable = $this->isQueryComponentNullable($dqlAlias)
 				|| $class->isNullable($fieldName)
 				|| $this->hasAggregateWithoutGroupBy();
 
-			$type = $this->resolveDoctrineType($typeName, $enumType, $nullable);
+			$type = $this->resolveDoctrineType($typeName, $enumType, $enumValues, $nullable);
 
 			$this->typeBuilder->addScalar($resultAlias, $type);
 
@@ -1243,11 +1238,12 @@ class QueryResultTypeWalker extends SqlWalker
 			if (
 				$expr instanceof TypedExpression
 				&& !$expr->getReturnType() instanceof DbalStringType // StringType is no-op, so using TypedExpression with that does nothing
+				&& !$expr->getReturnType() instanceof DbalEnumType // EnumType is also no-op
 			) {
 				$dbalTypeName = DbalType::getTypeRegistry()->lookupName($expr->getReturnType());
 				$type = TypeCombinator::intersect( // e.g. count is typed as int, but we infer int<0, max>
 					$type,
-					$this->resolveDoctrineType($dbalTypeName, null, TypeCombinator::containsNull($type))
+					$this->resolveDoctrineType($dbalTypeName, null, null, TypeCombinator::containsNull($type)),
 				);
 
 				if ($this->hasAggregateWithoutGroupBy() && !$expr instanceof AST\Functions\CountFunction) {
@@ -1711,7 +1707,7 @@ class QueryResultTypeWalker extends SqlWalker
 			}
 
 			$types[] = $this->castStringLiteralForNumericExpression(
-				$this->unmarshalType($this->walkArithmeticPrimary($term))
+				$this->unmarshalType($this->walkArithmeticPrimary($term)),
 			);
 		}
 
@@ -1738,7 +1734,7 @@ class QueryResultTypeWalker extends SqlWalker
 			}
 
 			$types[] = $this->castStringLiteralForNumericExpression(
-				$this->unmarshalType($this->walkArithmeticPrimary($factor))
+				$this->unmarshalType($this->walkArithmeticPrimary($factor)),
 			);
 		}
 
@@ -1816,7 +1812,7 @@ class QueryResultTypeWalker extends SqlWalker
 				return $this->createNumericString(
 					$nullable,
 					$unionWithoutNull->toString()->isLowercaseString()->yes(),
-					$unionWithoutNull->toString()->isUppercaseString()->yes()
+					$unionWithoutNull->toString()->isUppercaseString()->yes(),
 				);
 			}
 
@@ -1900,7 +1896,7 @@ class QueryResultTypeWalker extends SqlWalker
 				return $this->createNumericString(
 					$nullable,
 					$unionWithoutNull->toString()->isLowercaseString()->yes(),
-					$unionWithoutNull->toString()->isUppercaseString()->yes()
+					$unionWithoutNull->toString()->isUppercaseString()->yes(),
 				);
 			}
 
@@ -1935,7 +1931,7 @@ class QueryResultTypeWalker extends SqlWalker
 		} elseif ($type instanceof IntegerRangeType && $factor->sign === false) {
 			$type = IntegerRangeType::fromInterval(
 				$type->getMax() === null ? null : $type->getMax() * -1,
-				$type->getMin() === null ? null : $type->getMin() * -1
+				$type->getMin() === null ? null : $type->getMin() * -1,
 			);
 
 		} elseif ($type instanceof ConstantFloatType && $factor->sign === false) {
@@ -2005,7 +2001,7 @@ class QueryResultTypeWalker extends SqlWalker
 
 	/**
 	 * @param ClassMetadata<object> $class
-	 * @return array{string, ?class-string<BackedEnum>} Doctrine type name and enum type of field
+	 * @return array{string, ?class-string<BackedEnum>, ?list<string>} Doctrine type name, enum type of field, enum values
 	 */
 	private function getTypeOfField(ClassMetadata $class, string $fieldName): array
 	{
@@ -2023,11 +2019,45 @@ class QueryResultTypeWalker extends SqlWalker
 			$enumType = null;
 		}
 
-		return [$type, $enumType];
+		return [$type, $enumType, $this->detectEnumValues($type, $metadata)];
 	}
 
-	/** @param ?class-string<BackedEnum> $enumType */
-	private function resolveDoctrineType(string $typeName, ?string $enumType = null, bool $nullable = false): Type
+	/**
+	 * @param mixed $metadata
+	 *
+	 * @return list<string>|null
+	 */
+	private function detectEnumValues(string $typeName, $metadata): ?array
+	{
+		if ($typeName !== 'enum') {
+			return null;
+		}
+
+		$values = $metadata['options']['values'] ?? [];
+
+		if (!is_array($values) || count($values) === 0) {
+			return null;
+		}
+
+		foreach ($values as $value) {
+			if (!is_string($value)) {
+				return null;
+			}
+		}
+
+		return array_values($values);
+	}
+
+	/**
+	 * @param ?class-string<BackedEnum> $enumType
+	 * @param ?list<string> $enumValues
+	 */
+	private function resolveDoctrineType(
+		string $typeName,
+		?string $enumType = null,
+		?array $enumValues = null,
+		bool $nullable = false
+	): Type
 	{
 		try {
 			$type = $this->descriptorRegistry
@@ -2040,12 +2070,18 @@ class QueryResultTypeWalker extends SqlWalker
 				} else {
 					$type = TypeCombinator::intersect(new ArrayType(
 						$type->getIterableKeyType(),
-						new ObjectType($enumType)
+						new ObjectType($enumType),
 					), ...TypeUtils::getAccessoryTypes($type));
 				}
 			}
+
+			if ($enumValues !== null) {
+				$enumValuesType = TypeCombinator::union(...array_map(static fn (string $value) => new ConstantStringType($value), $enumValues));
+				$type = TypeCombinator::intersect($enumValuesType, $type);
+			}
+
 			if ($type instanceof NeverType) {
-					$type = new MixedType();
+				$type = new MixedType();
 			}
 		} catch (DescriptorNotRegisteredException $e) {
 			if ($enumType !== null) {
@@ -2059,11 +2095,19 @@ class QueryResultTypeWalker extends SqlWalker
 			$type = TypeCombinator::addNull($type);
 		}
 
-			return $type;
+		return $type;
 	}
 
-	/** @param ?class-string<BackedEnum> $enumType */
-	private function resolveDatabaseInternalType(string $typeName, ?string $enumType = null, bool $nullable = false): Type
+	/**
+	 * @param ?class-string<BackedEnum> $enumType
+	 * @param ?list<string> $enumValues
+	 */
+	private function resolveDatabaseInternalType(
+		string $typeName,
+		?string $enumType = null,
+		?array $enumValues = null,
+		bool $nullable = false
+	): Type
 	{
 		try {
 			$descriptor = $this->descriptorRegistry->get($typeName);
@@ -2076,12 +2120,15 @@ class QueryResultTypeWalker extends SqlWalker
 		}
 
 		if ($enumType !== null) {
-			$enumTypes = array_map(static function ($enumType) {
-				return ConstantTypeHelper::getTypeFromValue($enumType->value);
-			}, $enumType::cases());
+			$enumTypes = array_map(static fn ($enumType) => ConstantTypeHelper::getTypeFromValue($enumType->value), $enumType::cases());
 			$enumType = TypeCombinator::union(...$enumTypes);
 			$enumType = TypeCombinator::union($enumType, $enumType->toString());
 			$type = TypeCombinator::intersect($enumType, $type);
+		}
+
+		if ($enumValues !== null) {
+			$enumValuesType = TypeCombinator::union(...array_map(static fn (string $value) => new ConstantStringType($value), $enumValues));
+			$type = TypeCombinator::intersect($enumValuesType, $type);
 		}
 
 		if ($nullable) {

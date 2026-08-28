@@ -13,7 +13,6 @@ use PHPStan\Type\IterableType;
 use PHPStan\Type\MixedType;
 use PHPStan\Type\NeverType;
 use PHPStan\Type\ObjectType;
-use PHPStan\Type\ParserNodeTypeToPHPStanType;
 use PHPStan\Type\TypeCombinator;
 use PHPStan\Type\TypehintHelper;
 use PHPStan\Type\VerbosityLevel;
@@ -28,24 +27,17 @@ use function sprintf;
 class EntityRelationRule implements Rule
 {
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
-	/** @var bool */
-	private $allowNullablePropertyForRequiredField;
-
-	/** @var bool */
-	private $bleedingEdge;
+	private bool $allowNullablePropertyForRequiredField;
 
 	public function __construct(
 		ObjectMetadataResolver $objectMetadataResolver,
-		bool $allowNullablePropertyForRequiredField,
-		bool $bleedingEdge
+		bool $allowNullablePropertyForRequiredField
 	)
 	{
 		$this->objectMetadataResolver = $objectMetadataResolver;
 		$this->allowNullablePropertyForRequiredField = $allowNullablePropertyForRequiredField;
-		$this->bleedingEdge = $bleedingEdge;
 	}
 
 	public function getNodeType(): string
@@ -55,10 +47,6 @@ class EntityRelationRule implements Rule
 
 	public function processNode(Node $node, Scope $scope): array
 	{
-		if (!$this->bleedingEdge && !$this->objectMetadataResolver->hasObjectManagerLoader()) {
-			return [];
-		}
-
 		$class = $scope->getClassReflection();
 		if ($class === null) {
 			return [];
@@ -102,12 +90,12 @@ class EntityRelationRule implements Rule
 			$toMany = true;
 			$columnType = TypeCombinator::intersect(
 				new ObjectType('Doctrine\Common\Collections\Collection'),
-				new IterableType(new MixedType(), new ObjectType($associationMapping['targetEntity']))
+				new IterableType(new MixedType(), new ObjectType($associationMapping['targetEntity'])),
 			);
 		}
 
 		$phpDocType = $node->getPhpDocType();
-		$nativeType = $node->getNativeType() !== null ? ParserNodeTypeToPHPStanType::resolve($node->getNativeType(), $scope->getClassReflection()) : new MixedType();
+		$nativeType = $node->getNativeType() ?? new MixedType();
 		$propertyType = TypehintHelper::decideType($nativeType, $phpDocType);
 
 		$errors = [];
@@ -125,7 +113,7 @@ class EntityRelationRule implements Rule
 			) {
 				$propertyTypeToCheckAgainst = TypeCombinator::intersect(
 					$collectionObjectType,
-					new IterableType(new MixedType(true), $propertyType->getIterableValueType())
+					new IterableType(new MixedType(true), $propertyType->getIterableValueType()),
 				);
 			}
 			if (!$propertyTypeToCheckAgainst->isSuperTypeOf($columnType)->yes()) {
@@ -134,14 +122,14 @@ class EntityRelationRule implements Rule
 					$className,
 					$propertyName,
 					$columnType->describe(VerbosityLevel::typeOnly()),
-					$propertyType->describe(VerbosityLevel::typeOnly())
+					$propertyType->describe(VerbosityLevel::typeOnly()),
 				))->identifier('doctrine.associationType')->build();
 			}
 			if (
 				!$columnType->isSuperTypeOf(
 					$this->allowNullablePropertyForRequiredField
 						? TypeCombinator::removeNull($propertyType)
-						: $propertyType
+						: $propertyType,
 				)->yes()
 			) {
 				$errors[] = RuleErrorBuilder::message(sprintf(
@@ -149,7 +137,7 @@ class EntityRelationRule implements Rule
 					$className,
 					$propertyName,
 					$propertyType->describe(VerbosityLevel::typeOnly()),
-					$columnType->describe(VerbosityLevel::typeOnly())
+					$columnType->describe(VerbosityLevel::typeOnly()),
 				))->identifier('doctrine.associationType')->build();
 			}
 		}

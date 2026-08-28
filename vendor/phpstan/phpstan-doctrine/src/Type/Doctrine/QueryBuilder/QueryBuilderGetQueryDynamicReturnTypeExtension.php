@@ -55,24 +55,22 @@ class QueryBuilderGetQueryDynamicReturnTypeExtension implements DynamicMethodRet
 		'orhaving',
 	];
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
-	/** @var ArgumentsProcessor */
-	private $argumentsProcessor;
+	private ArgumentsProcessor $argumentsProcessor;
 
-	/** @var string|null */
-	private $queryBuilderClass;
+	/** @var class-string|null */
+	private ?string $queryBuilderClass = null;
 
-	/** @var DescriptorRegistry */
-	private $descriptorRegistry;
+	private DescriptorRegistry $descriptorRegistry;
 
-	/** @var PhpVersion */
-	private $phpVersion;
+	private PhpVersion $phpVersion;
 
-	/** @var DriverDetector */
-	private $driverDetector;
+	private DriverDetector $driverDetector;
 
+	/**
+	 * @param class-string|null $queryBuilderClass
+	 */
 	public function __construct(
 		ObjectMetadataResolver $objectMetadataResolver,
 		ArgumentsProcessor $argumentsProcessor,
@@ -193,7 +191,7 @@ class QueryBuilderGetQueryDynamicReturnTypeExtension implements DynamicMethodRet
 
 	private function getQueryType(string $dql): Type
 	{
-		$em = $this->objectMetadataResolver->getObjectManager();
+		$em = $this->objectMetadataResolver->getObjectManagerForDql($dql);
 		if (!$em instanceof EntityManagerInterface) {
 			return new QueryType($dql, null);
 		}

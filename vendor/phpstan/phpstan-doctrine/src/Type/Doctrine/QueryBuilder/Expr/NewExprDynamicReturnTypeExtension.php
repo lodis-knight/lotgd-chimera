@@ -18,15 +18,16 @@ use function class_exists;
 class NewExprDynamicReturnTypeExtension implements DynamicStaticMethodReturnTypeExtension
 {
 
-	/** @var ArgumentsProcessor */
-	private $argumentsProcessor;
+	private ArgumentsProcessor $argumentsProcessor;
 
-	/** @var string */
-	private $class;
+	/** @var class-string */
+	private string $class;
 
-	/** @var ReflectionProvider */
-	private $reflectionProvider;
+	private ReflectionProvider $reflectionProvider;
 
+	/**
+	 * @param class-string $class
+	 */
 	public function __construct(
 		ArgumentsProcessor $argumentsProcessor,
 		string $class,
@@ -68,8 +69,8 @@ class NewExprDynamicReturnTypeExtension implements DynamicStaticMethodReturnType
 				...$this->argumentsProcessor->processArgs(
 					$scope,
 					$methodReflection->getName(),
-					$methodCall->getArgs()
-				)
+					$methodCall->getArgs(),
+				),
 			);
 		} catch (DynamicQueryBuilderArgumentException $e) {
 			return new ObjectType($this->reflectionProvider->getClassName($className));

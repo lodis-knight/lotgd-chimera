@@ -9,18 +9,7 @@ parameters:
 		queryBuilderClass: null
 		allCollectionsSelectable: true
 		objectManagerLoader: null
-		searchOtherMethodsForQueryBuilderBeginning: true
-		queryBuilderFastAlgorithm: false
 		literalString: false
-	featureToggles:
-		skipCheckGenericClasses:
-			- Doctrine\ODM\MongoDB\Mapping\ClassMetadata
-			- Doctrine\ORM\Mapping\ClassMetadata
-			- Doctrine\ORM\Mapping\ClassMetadataInfo
-			- Doctrine\Persistence\Mapping\ClassMetadata
-			- Doctrine\ORM\AbstractQuery
-			- Doctrine\ORM\Query
-			- Doctrine\ORM\Tools\Pagination\Paginator
 	stubFiles:
 		- stubs/Criteria.stub
 		- stubs/DBAL/Cache/CacheException.stub
@@ -29,6 +18,7 @@ parameters:
 		- stubs/DBAL/Types/Type.stub
 		- stubs/DBAL/Exception.stub
 		- stubs/DBAL/Result.stub
+		- stubs/DBAL/Statement.stub
 		- stubs/DocumentManager.stub
 		- stubs/DocumentRepository.stub
 		- stubs/EntityManager.stub
@@ -42,6 +32,7 @@ parameters:
 		- stubs/Persistence/ObjectManagerDecorator.stub
 		- stubs/Persistence/ObjectRepository.stub
 		- stubs/RepositoryFactory.stub
+		- stubs/Collections/AbstractLazyCollection.stub
 		- stubs/Collections/ArrayCollection.stub
 		- stubs/Collections/Selectable.stub
 		- stubs/ORM/AbstractQuery.stub
@@ -78,8 +69,6 @@ parametersSchema:
 		queryBuilderClass: schema(string(), nullable())
 		allCollectionsSelectable: bool()
 		objectManagerLoader: schema(string(), nullable())
-		searchOtherMethodsForQueryBuilderBeginning: bool()
-		queryBuilderFastAlgorithm: bool()
 		reportDynamicQueryBuilders: bool()
 		reportUnknownTypes: bool()
 		allowNullablePropertyForRequiredField: bool()
@@ -116,7 +105,6 @@ services:
 		class: PHPStan\Type\Doctrine\QueryBuilder\CreateQueryBuilderDynamicReturnTypeExtension
 		arguments:
 			queryBuilderClass: %doctrine.queryBuilderClass%
-			fasterVersion: %doctrine.queryBuilderFastAlgorithm%
 		tags:
 			- phpstan.broker.dynamicMethodReturnTypeExtension
 	-
@@ -193,7 +181,6 @@ services:
 	-
 		class: PHPStan\Type\Doctrine\QueryBuilder\OtherMethodQueryBuilderParser
 		arguments:
-			descendIntoOtherMethods: %doctrine.searchOtherMethodsForQueryBuilderBeginning%
 			parser: @defaultAnalysisParser
 
 	-
@@ -369,6 +356,9 @@ services:
 		class: PHPStan\Type\Doctrine\Descriptors\DecimalType
 		tags: [phpstan.doctrine.typeDescriptor]
 	-
+		class: PHPStan\Type\Doctrine\Descriptors\EnumType
+		tags: [phpstan.doctrine.typeDescriptor]
+	-
 		class: PHPStan\Type\Doctrine\Descriptors\FloatType
 		tags: [phpstan.doctrine.typeDescriptor]
 	-
@@ -384,10 +374,16 @@ services:
 		class: PHPStan\Type\Doctrine\Descriptors\JsonType
 		tags: [phpstan.doctrine.typeDescriptor]
 	-
+		class: PHPStan\Type\Doctrine\Descriptors\NumberType
+		tags: [phpstan.doctrine.typeDescriptor]
+	-
 		class: PHPStan\Type\Doctrine\Descriptors\ObjectType
 		tags: [phpstan.doctrine.typeDescriptor]
 	-
 		class: PHPStan\Type\Doctrine\Descriptors\SimpleArrayType
+		tags: [phpstan.doctrine.typeDescriptor]
+	-
+		class: PHPStan\Type\Doctrine\Descriptors\SmallFloatType
 		tags: [phpstan.doctrine.typeDescriptor]
 	-
 		class: PHPStan\Type\Doctrine\Descriptors\SmallIntType
@@ -427,6 +423,16 @@ services:
 		tags: [phpstan.doctrine.typeDescriptor]
 		arguments:
 			uuidTypeName: Ramsey\Uuid\Doctrine\UuidBinaryOrderedTimeType
+	-
+		class: PHPStan\Type\Doctrine\Descriptors\Symfony\UuidTypeDescriptor
+		tags: [phpstan.doctrine.typeDescriptor]
+		arguments:
+			uuidTypeName: Symfony\Bridge\Doctrine\Types\UuidType
+	-
+		class: PHPStan\Type\Doctrine\Descriptors\Symfony\UlidTypeDescriptor
+		tags: [phpstan.doctrine.typeDescriptor]
+		arguments:
+			uuidTypeName: Symfony\Bridge\Doctrine\Types\UlidType
 
 	# Doctrine Collection
 	-

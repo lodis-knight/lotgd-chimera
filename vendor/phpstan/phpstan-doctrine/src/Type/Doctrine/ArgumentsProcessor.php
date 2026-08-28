@@ -7,14 +7,14 @@ use PHPStan\Analyser\Scope;
 use PHPStan\Rules\Doctrine\ORM\DynamicQueryBuilderArgumentException;
 use PHPStan\Type\Doctrine\QueryBuilder\Expr\ExprType;
 use function count;
+use function in_array;
 use function strpos;
 
 /** @api */
 class ArgumentsProcessor
 {
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
 	public function __construct(ObjectMetadataResolver $objectMetadataResolver)
 	{
@@ -33,7 +33,7 @@ class ArgumentsProcessor
 	): array
 	{
 		$args = [];
-		foreach ($methodCallArgs as $arg) {
+		foreach ($methodCallArgs as $argIndex => $arg) {
 			if ($arg->unpack) {
 				throw new DynamicQueryBuilderArgumentException();
 			}
@@ -59,15 +59,17 @@ class ArgumentsProcessor
 				continue;
 			}
 
-			if ($value->isClassStringType()->yes() && count($value->getClassStringObjectType()->getObjectClassNames()) === 1) {
+			if ($value->isClassString()->yes() && count($value->getClassStringObjectType()->getObjectClassNames()) === 1) {
 				/** @var class-string $className */
 				$className = $value->getClassStringObjectType()->getObjectClassNames()[0];
-				if ($this->objectMetadataResolver->isTransient($className)) {
-					throw new DynamicQueryBuilderArgumentException();
+				$isEntityClassArgument = $argIndex === 0 && in_array($methodName, ['from', 'join', 'innerJoin', 'leftJoin'], true);
+				if ($isEntityClassArgument) {
+					if ($this->objectMetadataResolver->isTransient($className)) {
+						throw new DynamicQueryBuilderArgumentException();
+					}
+					$args[] = $className;
+					continue;
 				}
-
-				$args[] = $className;
-				continue;
 			}
 
 			if (count($value->getConstantScalarValues()) !== 1) {

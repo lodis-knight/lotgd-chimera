@@ -19,12 +19,17 @@ use function sprintf;
 class RepositoryMethodCallRule implements Rule
 {
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
-	public function __construct(ObjectMetadataResolver $objectMetadataResolver)
+	private bool $checkOrderByFields;
+
+	public function __construct(
+		ObjectMetadataResolver $objectMetadataResolver,
+		bool $checkOrderByFields = false
+	)
 	{
 		$this->objectMetadataResolver = $objectMetadataResolver;
+		$this->checkOrderByFields = $checkOrderByFields;
 	}
 
 	public function getNodeType(): string
@@ -39,7 +44,7 @@ class RepositoryMethodCallRule implements Rule
 		}
 		$argType = $scope->getType($node->getArgs()[0]->value);
 		$calledOnType = $scope->getType($node->var);
-		$entityClassType = $calledOnType->getTemplateType(ObjectRepository::class, 'TEntityClass');
+		$entityClassType = $calledOnType->getTemplateType(ObjectRepository::class, 'T');
 
 		/** @var list<class-string> $entityClassNames */
 		$entityClassNames = $entityClassType->getObjectClassNames();
@@ -82,7 +87,45 @@ class RepositoryMethodCallRule implements Rule
 						$calledOnType->describe(VerbosityLevel::typeOnly()),
 						$methodName,
 						$entityClassNames[0],
-						$fieldName->getValue()
+						$fieldName->getValue(),
+					))->identifier(sprintf('doctrine.%sArgument', $methodName))->build();
+				}
+			}
+		}
+
+		if (!$this->checkOrderByFields) {
+			return $messages;
+		}
+
+		if (!in_array($methodName, [
+			'findBy',
+			'findOneBy',
+		], true)) {
+			return $messages;
+		}
+
+		$orderByType = count($node->getArgs()) > 1 ? $scope->getType($node->getArgs()[1]->value) : null;
+
+		if ($orderByType === null) {
+			return $messages;
+		}
+
+		foreach ($orderByType->getConstantArrays() as $constantArray) {
+			foreach ($constantArray->getKeyTypes() as $keyType) {
+				foreach ($keyType->getConstantStrings() as $fieldName) {
+					if (
+						$classMetadata->hasField($fieldName->getValue())
+						|| $classMetadata->hasAssociation($fieldName->getValue())
+					) {
+						continue;
+					}
+
+					$messages[] = RuleErrorBuilder::message(sprintf(
+						'Call to method %s::%s() - entity %s does not have a field named $%s.',
+						$calledOnType->describe(VerbosityLevel::typeOnly()),
+						$methodName,
+						$entityClassNames[0],
+						$fieldName->getValue(),
 					))->identifier(sprintf('doctrine.%sArgument', $methodName))->build();
 				}
 			}

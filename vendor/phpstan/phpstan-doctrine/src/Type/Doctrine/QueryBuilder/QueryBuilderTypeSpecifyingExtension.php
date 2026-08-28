@@ -24,12 +24,14 @@ class QueryBuilderTypeSpecifyingExtension implements MethodTypeSpecifyingExtensi
 
 	private const MAX_COMBINATIONS = 16;
 
-	/** @var string|null */
-	private $queryBuilderClass;
+	/** @var class-string|null */
+	private ?string $queryBuilderClass = null;
 
-	/** @var TypeSpecifier */
-	private $typeSpecifier;
+	private TypeSpecifier $typeSpecifier;
 
+	/**
+	 * @param class-string|null $queryBuilderClass
+	 */
 	public function __construct(?string $queryBuilderClass)
 	{
 		$this->queryBuilderClass = $queryBuilderClass;
@@ -62,7 +64,7 @@ class QueryBuilderTypeSpecifyingExtension implements MethodTypeSpecifyingExtensi
 		$returnType = ParametersAcceptorSelector::selectFromArgs(
 			$scope,
 			$node->getArgs(),
-			$methodReflection->getVariants()
+			$methodReflection->getVariants(),
 		)->getReturnType();
 		if ($returnType instanceof MixedType) {
 			return new SpecifiedTypes([]);
@@ -100,8 +102,8 @@ class QueryBuilderTypeSpecifyingExtension implements MethodTypeSpecifyingExtensi
 			$queryBuilderNode,
 			TypeCombinator::union(...$resultTypes),
 			TypeSpecifierContext::createTruthy(),
-			true
-		);
+			$scope,
+		)->setAlwaysOverwriteTypes();
 	}
 
 }

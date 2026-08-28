@@ -18,7 +18,16 @@ This extension provides following features:
 * Adds missing `matching` method on `Doctrine\Common\Collections\Collection`. This can be turned off by setting `parameters.doctrine.allCollectionsSelectable` to `false`.
 * Also supports Doctrine ODM.
 * Analysis of discrepancies between entity column types and property field types. This can be relaxed with the `allowNullablePropertyForRequiredField: true` setting.
+* Analysis of discrepancies between entity relation types and property field types (to-one, to-many).
 * Provides return type for `Doctrine\ORM\Query::getResult`, `getOneOrNullResult`, `getSingleResult`, `toIterable` and `execute` in `HYDRATE_OBJECT` mode (see below).
+* Reports `final` entity classes that can cause problems with Doctrine proxy generation (allowed when native lazy objects are enabled).
+* Reports `final` entity constructors that can cause problems with Doctrine proxy generation.
+* Detects Doctrine mapping configuration errors (annotation/attribute parsing issues).
+* Forbids direct use of Doctrine proxy class names.
+* Provides precise throw types for `EntityManager::flush()` (`ORMException`, `UniqueConstraintViolationException`).
+* Integrates with PHPStan dead code detection — entity properties are not reported as unused. Recognizes generated identifiers, version fields, and read-only entities as always written.
+* Supports [Gedmo doctrine-extensions](https://github.com/doctrine-extensions/DoctrineExtensions) — properties managed by Gedmo annotations/attributes (e.g. `Timestampable`, `Blameable`, `Slug`) are recognized for dead code detection.
+* Narrows `Collection::first()` and `Collection::last()` return types from `T|false` to `T` when `isEmpty()` is `false`.
 
 ## Installation
 
@@ -98,6 +107,25 @@ $kernel->boot();
 return $kernel->getContainer()->get('doctrine')->getManager();
 ```
 
+If your application uses multiple entity managers, return the Doctrine manager
+registry from the loader. PHPStan Doctrine will use it to pick the object manager
+that owns the entity being analysed:
+
+```php
+// tests/object-manager.php
+
+use App\Kernel;
+use Symfony\Component\Dotenv\Dotenv;
+
+require __DIR__ . '/../vendor/autoload.php';
+
+(new Dotenv())->bootEnv(__DIR__ . '/../.env');
+
+$kernel = new Kernel($_SERVER['APP_ENV'], (bool) $_SERVER['APP_DEBUG']);
+$kernel->boot();
+return $kernel->getContainer()->get('doctrine');
+```
+
 ## Query type inference
 
 This extension can infer the result type of DQL queries when an `objectManagerLoader` is provided.
@@ -126,7 +154,7 @@ $query->getResult(); // array<Acme\User>
 
 Queries are analyzed statically and do not require a running database server. This makes use of the Doctrine DQL parser and entities metadata.
 
-Most DQL features are supported, including `GROUP BY`, `DISTINCT`, all flavors of `JOIN`, arithmetic expressions, functions, aggregations, `NEW`, etc. Sub queries and `INDEX BY` are not yet supported (infered type will be `mixed`).
+Most DQL features are supported, including `GROUP BY`, `INDEX BY`, `DISTINCT`, all flavors of `JOIN`, arithmetic expressions, functions, aggregations, `NEW`, etc. Sub queries are not yet supported (infered type will be `mixed`).
 
 ### Query type inference of expressions
 

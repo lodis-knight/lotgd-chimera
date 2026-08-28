@@ -16,6 +16,7 @@ class EntityManagerDecorator implements EntityManagerInterface
 	 * @phpstan-param integer|null $lockMode
 	 * @phpstan-param integer|null $lockVersion
 	 * @phpstan-return T|null
+	 * @phpstan-impure
 	 */
 	public function find($entityName, $id, $lockMode = null, $lockVersion = null);
 
@@ -60,4 +61,9 @@ class EntityManagerDecorator implements EntityManagerInterface
 	 */
 	public function copy($entity, $deep = false);
 
+	/**
+	 * @return bool
+	 * @phpstan-impure
+	 */
+	public function isOpen();
 }

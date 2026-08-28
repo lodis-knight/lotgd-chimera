@@ -27,24 +27,22 @@ use function count;
 class GetRepositoryDynamicReturnTypeExtension implements DynamicMethodReturnTypeExtension
 {
 
-	/** @var ReflectionProvider */
-	private $reflectionProvider;
+	private ReflectionProvider $reflectionProvider;
 
-	/** @var string|null */
-	private $repositoryClass;
+	private ?string $repositoryClass = null;
 
-	/** @var string|null */
-	private $ormRepositoryClass;
+	private ?string $ormRepositoryClass = null;
 
-	/** @var string|null */
-	private $odmRepositoryClass;
+	private ?string $odmRepositoryClass = null;
 
-	/** @var string */
-	private $managerClass;
+	/** @var class-string */
+	private string $managerClass;
 
-	/** @var ObjectMetadataResolver */
-	private $metadataResolver;
+	private ObjectMetadataResolver $metadataResolver;
 
+	/**
+	 * @param class-string $managerClass
+	 */
 	public function __construct(
 		ReflectionProvider $reflectionProvider,
 		?string $repositoryClass,
@@ -87,11 +85,11 @@ class GetRepositoryDynamicReturnTypeExtension implements DynamicMethodReturnType
 		if (count($methodCall->getArgs()) === 0) {
 			return new GenericObjectType(
 				$defaultRepositoryClass,
-				[new ObjectWithoutClassType()]
+				[new ObjectWithoutClassType()],
 			);
 		}
 		$argType = $scope->getType($methodCall->getArgs()[0]->value);
-		if (!$argType->isClassStringType()->yes()) {
+		if (!$argType->isClassString()->yes()) {
 			return $this->getDefaultReturnType($scope, $methodCall->getArgs(), $methodReflection, $defaultRepositoryClass);
 		}
 
@@ -101,14 +99,15 @@ class GetRepositoryDynamicReturnTypeExtension implements DynamicMethodReturnType
 		if (count($objectNames) === 0) {
 			return new GenericObjectType(
 				$defaultRepositoryClass,
-				[$classType]
+				[$classType],
 			);
 		}
 
 		$repositoryTypes = [];
+		$managerName = $this->getManagerName($scope, $methodCall->getArgs());
 		foreach ($objectNames as $objectName) {
 			try {
-				$repositoryClass = $this->getRepositoryClass($objectName, $defaultRepositoryClass);
+				$repositoryClass = $this->getRepositoryClass($objectName, $defaultRepositoryClass, $managerName);
 			} catch (\Doctrine\Persistence\Mapping\MappingException | MappingException | AnnotationException $e) {
 				return $this->getDefaultReturnType($scope, $methodCall->getArgs(), $methodReflection, $defaultRepositoryClass);
 			}
@@ -127,20 +126,37 @@ class GetRepositoryDynamicReturnTypeExtension implements DynamicMethodReturnType
 		$defaultType = ParametersAcceptorSelector::selectFromArgs(
 			$scope,
 			$args,
-			$methodReflection->getVariants()
+			$methodReflection->getVariants(),
 		)->getReturnType();
-		$entity = $defaultType->getTemplateType(ObjectRepository::class, 'TEntityClass');
+		$entity = $defaultType->getTemplateType(ObjectRepository::class, 'T');
 		if (!$entity instanceof ErrorType) {
 			return new GenericObjectType(
 				$defaultRepositoryClass,
-				[$entity]
+				[$entity],
 			);
 		}
 
 		return $defaultType;
 	}
 
-	private function getRepositoryClass(string $className, string $defaultRepositoryClass): string
+	/**
+	 * @param Arg[] $args
+	 */
+	private function getManagerName(Scope $scope, array $args): ?string
+	{
+		if (count($args) < 2) {
+			return null;
+		}
+
+		$managerNames = $scope->getType($args[1]->value)->getConstantStrings();
+		if (count($managerNames) !== 1) {
+			return null;
+		}
+
+		return $managerNames[0]->getValue();
+	}
+
+	private function getRepositoryClass(string $className, string $defaultRepositoryClass, ?string $managerName): string
 	{
 		if (!$this->reflectionProvider->hasClass($className)) {
 			return $defaultRepositoryClass;
@@ -151,12 +167,29 @@ class GetRepositoryDynamicReturnTypeExtension implements DynamicMethodReturnType
 			return $defaultRepositoryClass;
 		}
 
+		if ($managerName !== null) {
+			$objectManager = $this->metadataResolver->getObjectManagerByName($managerName);
+			if ($objectManager !== null) {
+				$metadata = $objectManager->getClassMetadata($classReflection->getName());
+				$odmMetadataClass = 'Doctrine\ODM\MongoDB\Mapping\ClassMetadata';
+				if ($metadata instanceof $odmMetadataClass) {
+					/** @var ClassMetadata<object> $odmMetadata */
+					$odmMetadata = $metadata;
+					return $odmMetadata->customRepositoryClassName ?? $defaultRepositoryClass;
+				}
+
+				if ($metadata instanceof \Doctrine\ORM\Mapping\ClassMetadata) {
+					return $metadata->customRepositoryClassName ?? $defaultRepositoryClass;
+				}
+			}
+		}
+
 		$metadata = $this->metadataResolver->getClassMetadata($classReflection->getName());
 		if ($metadata !== null) {
 			return $metadata->customRepositoryClassName ?? $defaultRepositoryClass;
 		}
 
-		$objectManager = $this->metadataResolver->getObjectManager();
+		$objectManager = $this->metadataResolver->getObjectManagerForClass($classReflection->getName());
 		if ($objectManager === null) {
 			return $defaultRepositoryClass;
 		}

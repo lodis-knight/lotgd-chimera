@@ -11,7 +11,6 @@ use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use PHPStan\Type\Doctrine\ObjectMetadataResolver;
 use PHPStan\Type\ObjectType;
-use PHPStan\Type\TypeUtils;
 use function count;
 use function sprintf;
 
@@ -21,8 +20,7 @@ use function sprintf;
 class DqlRule implements Rule
 {
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
 	public function __construct(ObjectMetadataResolver $objectMetadataResolver)
 	{
@@ -55,24 +53,21 @@ class DqlRule implements Rule
 			return [];
 		}
 
-		$dqls = TypeUtils::getConstantStrings($scope->getType($node->getArgs()[0]->value));
+		$dqls = $scope->getType($node->getArgs()[0]->value)->getConstantStrings();
 		if (count($dqls) === 0) {
 			return [];
 		}
 
-		$objectManager = $this->objectMetadataResolver->getObjectManager();
-		if ($objectManager === null) {
-			return [];
-		}
-		if (!$objectManager instanceof $entityManagerInterface) {
-			return [];
-		}
-
-		/** @var EntityManagerInterface $objectManager */
-		$objectManager = $objectManager;
-
 		$messages = [];
 		foreach ($dqls as $dql) {
+			$objectManager = $this->objectMetadataResolver->getObjectManagerForDql($dql->getValue());
+			if (!$objectManager instanceof $entityManagerInterface) {
+				continue;
+			}
+
+			/** @var EntityManagerInterface $objectManager */
+			$objectManager = $objectManager;
+
 			$query = $objectManager->createQuery($dql->getValue());
 			try {
 				$query->getAST();

@@ -28,25 +28,19 @@ use function sprintf;
 class OtherMethodQueryBuilderParser
 {
 
-	/** @var bool */
-	private $descendIntoOtherMethods;
+	private Parser $parser;
 
-	/** @var Parser */
-	private $parser;
-
-	/** @var Container */
-	private $container;
+	private Container $container;
 
 	/**
 	 * Null if the method is currently being processed
 	 *
 	 * @var array<string, list<QueryBuilderType>|null>
 	 */
-	private $cache = [];
+	private array $cache = [];
 
-	public function __construct(bool $descendIntoOtherMethods, Parser $parser, Container $container)
+	public function __construct(Parser $parser, Container $container)
 	{
-		$this->descendIntoOtherMethods = $descendIntoOtherMethods;
 		$this->parser = $parser;
 		$this->container = $container;
 	}
@@ -56,10 +50,6 @@ class OtherMethodQueryBuilderParser
 	 */
 	public function findQueryBuilderTypesInCalledMethod(Scope $scope, MethodReflection $methodReflection): array
 	{
-		if (!$this->descendIntoOtherMethods) {
-			return [];
-		}
-
 		$methodName = $methodReflection->getName();
 		$className = $methodReflection->getDeclaringClass()->getName();
 		$fileName = $methodReflection->getDeclaringClass()->getFileName();
@@ -108,7 +98,7 @@ class OtherMethodQueryBuilderParser
 				return;
 			}
 
-			$exprType = $scope->getType($node->expr);
+			$exprType = $scope->toMutatingScope()->getType($node->expr);
 
 			TypeTraverser::map($exprType, static function (Type $type, callable $traverse) use (&$queryBuilderTypes): Type {
 				if ($type instanceof UnionType || $type instanceof IntersectionType) {

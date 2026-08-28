@@ -13,7 +13,6 @@ use PHPStan\Rules\RuleErrorBuilder;
 use PHPStan\Type\Doctrine\DoctrineTypeUtils;
 use PHPStan\Type\Doctrine\ObjectMetadataResolver;
 use PHPStan\Type\ObjectType;
-use PHPStan\Type\TypeUtils;
 use Throwable;
 use function array_values;
 use function count;
@@ -26,11 +25,9 @@ use function strpos;
 class QueryBuilderDqlRule implements Rule
 {
 
-	/** @var ObjectMetadataResolver */
-	private $objectMetadataResolver;
+	private ObjectMetadataResolver $objectMetadataResolver;
 
-	/** @var bool */
-	private $reportDynamicQueryBuilders;
+	private bool $reportDynamicQueryBuilders;
 
 	public function __construct(
 		ObjectMetadataResolver $objectMetadataResolver,
@@ -83,7 +80,7 @@ class QueryBuilderDqlRule implements Rule
 			];
 		}
 
-		$dqls = TypeUtils::getConstantStrings($dqlType);
+		$dqls = $dqlType->getConstantStrings();
 		if (count($dqls) === 0) {
 			if ($this->reportDynamicQueryBuilders) {
 				return [
@@ -95,21 +92,18 @@ class QueryBuilderDqlRule implements Rule
 			return [];
 		}
 
-		$objectManager = $this->objectMetadataResolver->getObjectManager();
-		if ($objectManager === null) {
-			return [];
-		}
-
 		$entityManagerInterface = 'Doctrine\ORM\EntityManagerInterface';
-		if (!$objectManager instanceof $entityManagerInterface) {
-			return [];
-		}
-
-		/** @var EntityManagerInterface $objectManager */
-		$objectManager = $objectManager;
 
 		$messages = [];
 		foreach ($dqls as $dql) {
+			$objectManager = $this->objectMetadataResolver->getObjectManagerForDql($dql->getValue());
+			if (!$objectManager instanceof $entityManagerInterface) {
+				continue;
+			}
+
+			/** @var EntityManagerInterface $objectManager */
+			$objectManager = $objectManager;
+
 			try {
 				$objectManager->createQuery($dql->getValue())->getAST();
 			} catch (QueryException $e) {

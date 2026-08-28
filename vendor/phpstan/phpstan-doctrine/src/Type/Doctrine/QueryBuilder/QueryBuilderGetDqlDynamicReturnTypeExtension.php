@@ -13,9 +13,12 @@ use PHPStan\Type\TypeCombinator;
 class QueryBuilderGetDqlDynamicReturnTypeExtension implements DynamicMethodReturnTypeExtension
 {
 
-	/** @var string|null */
-	private $queryBuilderClass;
+	/** @var class-string|null */
+	private ?string $queryBuilderClass = null;
 
+	/**
+	 * @param class-string|null $queryBuilderClass
+	 */
 	public function __construct(
 		?string $queryBuilderClass
 	)
@@ -41,7 +44,7 @@ class QueryBuilderGetDqlDynamicReturnTypeExtension implements DynamicMethodRetur
 	{
 		$type = $scope->getType(new MethodCall(
 			new MethodCall($methodCall->var, new Identifier('getQuery')),
-			new Identifier('getDQL')
+			new Identifier('getDQL'),
 		));
 
 		return TypeCombinator::removeNull($type);
